@@ -16,6 +16,10 @@ const REPO = {
     login: "dajinchu",
   },
 };
+const COL_ID_ASSIGNED = 1;
+const PROJ_ID = 42;
+const ISSUE_NUM = 9;
+const ISSUE_ID = 123456;
 
 describe("My Probot app", () => {
   let probot: any;
@@ -35,60 +39,102 @@ describe("My Probot app", () => {
 
   beforeEach(() => {
     nock.disableNetConnect();
+    // Test that we correctly return a test token
     // Load our app into probot
     probot = new Probot({ id: 123, cert: mockCert });
     probot.load(myProbotApp);
   });
 
-  test("moves issue to project board when tagged", async (done) => {
-    // Test that we correctly return a test token
-    nockGH
-      .post("/app/installations/2/access_tokens")
-      .reply(200, { token: "test" });
-
-    nockGH
-      .get("/repos/dajinchu/gh-project-bot/projects")
-      .reply(200, [{ id: 42 }]);
-
-    nockGH.get("/projects/42/columns").reply(200, [
-      { id: 1, name: "Assigned" },
-      { id: 3, name: "In Review" },
-    ]);
-
-    // Test that card created in assigned column
-    nockGH
-      .post("/projects/columns/1/cards", (body: any) => {
-        done(
-          expect(body).toMatchObject({
-            content_id: 123456,
-            content_type: "Issue",
-          })
-        );
-        return true;
-      })
-      .reply(201);
-
-    // Receive a webhook event
-    await probot.receive({
-      name: "issues",
-      payload: {
-        action: "labeled",
-        issue: {
-          id: 123456,
-          user: {
-            login: "dajinchu",
+  describe("issue.labeled", () => {
+    function mockIssueLabeled(newLabel: string, allLabels: string[]) {
+      return {
+        name: "issues",
+        payload: {
+          action: "labeled",
+          label: {
+            name: newLabel,
           },
-          labels: [
-            {
-              name: "priority/high",
+          issue: {
+            id: ISSUE_ID,
+            number: ISSUE_NUM,
+            user: {
+              login: "dajinchu",
             },
-            {
-              name: "status/assigned",
-            },
-          ],
+            labels: allLabels.map((name) => ({ name })),
+          },
+          repository: REPO,
         },
-        repository: REPO,
-      },
+      };
+    }
+    beforeEach(() => {
+      nockGH
+        .post("/app/installations/2/access_tokens")
+        .reply(200, { token: "test" });
+
+      nockGH
+        .get("/repos/dajinchu/gh-project-bot/projects")
+        .reply(200, [{ id: PROJ_ID }]);
+
+      nockGH.get(`/projects/${PROJ_ID}/columns`).reply(200, [
+        { id: 29, name: "Triage" },
+        { id: COL_ID_ASSIGNED, name: "Assigned" },
+        { id: 3, name: "In Review" },
+      ]);
+    });
+
+    it("moves issue to project board when tagged", async (done) => {
+      // Test that card created in assigned column
+      nockGH
+        .post("/projects/columns/1/cards", (body: any) => {
+          done(
+            expect(body).toMatchObject({
+              content_id: ISSUE_ID,
+              content_type: "Issue",
+            })
+          );
+          return true;
+        })
+        .reply(201);
+
+      // Receive a webhook event
+      await probot.receive(
+        mockIssueLabeled("status/assigned", [
+          "status/assigned",
+          "priority/high",
+        ])
+      );
+    });
+
+    it("removes old status tags", async (done) => {
+      nockGH
+        .delete(
+          `/repos/dajinchu/gh-project-bot/issues/${ISSUE_NUM}/labels/status/triage`
+        )
+        .reply(200);
+      nockGH
+        .post(`/projects/columns/${COL_ID_ASSIGNED}/cards`, (body: any) => {
+          done(
+            expect(body).toMatchObject({
+              content_id: ISSUE_ID,
+              content_type: "Issue",
+            })
+          );
+          return true;
+        })
+        .reply(201);
+
+      // Receive a webhook event
+      await probot.receive(
+        mockIssueLabeled("status/assigned", [
+          "status/assigned",
+          "status/triage",
+        ])
+      );
+    });
+    it("gracefully handles not finding any status tags", async () => {
+      expect(
+        probot.receive(mockIssueLabeled("priority/high", ["priority/high"]))
+      ).resolves.not.toThrow();
     });
   });
 
@@ -97,12 +143,3 @@ describe("My Probot app", () => {
     nock.enableNetConnect();
   });
 });
-
-// For more information about testing with Jest see:
-// https://facebook.github.io/jest/
-
-// For more information about using TypeScript in your tests, Jest recommends:
-// https://github.com/kulshekhar/ts-jest
-
-// For more information about testing with Nock see:
-// https://github.com/nock/nock

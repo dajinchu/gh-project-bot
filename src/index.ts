@@ -10,27 +10,37 @@ const ISSUE_TO_COLUMN: Record<string, string> = {
 
 export = (app: Application) => {
   app.on("issues.labeled", async ({ payload, github }) => {
-    const projects = (
-      await github.projects.listForRepo({
-        owner: payload.repository.owner.login,
-        repo: payload.repository.name,
-      })
-    ).data;
+    const repoId = {
+      owner: payload.repository.owner.login,
+      repo: payload.repository.name,
+    };
+    const projects = (await github.projects.listForRepo(repoId)).data;
     if (projects.length === 0) {
       console.error("could not find a project board on this repo");
       return;
     }
     const projectId = projects[0].id;
 
-    // Get label(s) that start with status/
-    const labels: string[] = payload.issue.labels
-      .map((l) => l.name)
-      .filter((n) => n in ISSUE_TO_COLUMN);
-    if (labels.length === 0) {
-      // no status label
+    // Get new status label
+    const newStatus: string = (payload as any).label.name; //Probot types are a bit scuffed
+    if (!(newStatus in ISSUE_TO_COLUMN)) {
       return;
     }
-    const columnName = ISSUE_TO_COLUMN[labels[0]];
+    const columnName = ISSUE_TO_COLUMN[newStatus];
+
+    // Get rid of other label(s) that start with status/
+    const labels: string[] = payload.issue.labels
+      .map((l) => l.name)
+      .filter((n) => n in ISSUE_TO_COLUMN && n !== newStatus);
+    await Promise.all(
+      labels.map((l) =>
+        github.issues.removeLabel({
+          ...repoId,
+          issue_number: payload.issue.number,
+          name: l,
+        })
+      )
+    );
 
     // Find the corresponding column
     const columns = await github.projects.listColumns({
