@@ -71,21 +71,33 @@ describe("My Probot app", () => {
         .post("/app/installations/2/access_tokens")
         .reply(200, { token: "test" });
 
+      // mock get project id
       nockGH
         .get("/repos/dajinchu/gh-project-bot/projects")
+        .optionally()
         .reply(200, [{ id: PROJ_ID }]);
 
-      nockGH.get(`/projects/${PROJ_ID}/columns`).reply(200, [
-        { id: 29, name: "Triage" },
-        { id: COL_ID_ASSIGNED, name: "Assigned" },
-        { id: 3, name: "In Review" },
-      ]);
+      // mock get columns
+      nockGH
+        .get(`/projects/${PROJ_ID}/columns`)
+        .optionally()
+        .reply(200, [
+          { id: 29, name: "Triage" },
+          { id: COL_ID_ASSIGNED, name: "Assigned" },
+          { id: 3, name: "In Review" },
+        ]);
     });
 
-    it("moves issue to project board when tagged", async (done) => {
+    it("add issue to project board when tagged", async (done) => {
+      // Mock that the board is not yet on the project board
+      nockGH
+        .post("/graphql")
+        .reply(200, {
+          data: { repository: { issue: { projectCards: { nodes: [] } } } },
+        });
       // Test that card created in assigned column
       nockGH
-        .post("/projects/columns/1/cards", (body: any) => {
+        .post(`/projects/columns/${COL_ID_ASSIGNED}/cards`, (body: any) => {
           done(
             expect(body).toMatchObject({
               content_id: ISSUE_ID,
@@ -105,23 +117,49 @@ describe("My Probot app", () => {
       );
     });
 
-    it("removes old status tags", async (done) => {
+    it("moves issue to diff column if already on project board", async (done) => {
+      // Mock that the board is not yet on the project board
       nockGH
-        .delete(
-          `/repos/dajinchu/gh-project-bot/issues/${ISSUE_NUM}/labels/status/triage`
-        )
-        .reply(200);
+        .post("/graphql")
+        .reply(200, {
+          data: {
+            repository: {
+              issue: { projectCards: { nodes: [{ databaseId: 424242 }] } },
+            },
+          },
+        });
       nockGH
-        .post(`/projects/columns/${COL_ID_ASSIGNED}/cards`, (body: any) => {
+        .post("/projects/columns/cards/424242/moves", (body: any) => {
           done(
             expect(body).toMatchObject({
-              content_id: ISSUE_ID,
-              content_type: "Issue",
+              column_id: COL_ID_ASSIGNED,
             })
           );
           return true;
         })
         .reply(201);
+
+      // Receive a webhook event
+      await probot.receive(
+        mockIssueLabeled("status/assigned", [
+          "status/assigned",
+          "priority/high",
+        ])
+      );
+    });
+
+    it("removes old status tags", async () => {
+      nockGH
+        .post("/graphql")
+        .reply(200, {
+          data: { repository: { issue: { projectCards: { nodes: [] } } } },
+        });
+      nockGH
+        .delete(
+          `/repos/dajinchu/gh-project-bot/issues/${ISSUE_NUM}/labels/status/triage`
+        )
+        .reply(200);
+      nockGH.post(`/projects/columns/${COL_ID_ASSIGNED}/cards`).reply(201);
 
       // Receive a webhook event
       await probot.receive(

@@ -16,9 +16,6 @@ const findCard = `
       issue(number: $issue) {
         projectCards(first: 10) {
           nodes {
-            column {
-              databaseId
-            }
             databaseId
           }
         }
@@ -26,7 +23,6 @@ const findCard = `
     }
   }
 `;
-
 export = (app: Application) => {
   app.on("issues.labeled", async ({ payload, github }) => {
     const repoId = {
