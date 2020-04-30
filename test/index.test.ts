@@ -17,6 +17,7 @@ const REPO = {
   },
 };
 const COL_ID_ASSIGNED = 1;
+const COL_ID_TRIAGE = 29;
 const PROJ_ID = 42;
 const ISSUE_NUM = 9;
 const ISSUE_ID = 123456;
@@ -82,7 +83,7 @@ describe("My Probot app", () => {
         .get(`/projects/${PROJ_ID}/columns`)
         .optionally()
         .reply(200, [
-          { id: 29, name: "Triage" },
+          { id: COL_ID_TRIAGE, name: "Triage" },
           { id: COL_ID_ASSIGNED, name: "Assigned" },
           { id: 3, name: "In Review" },
         ]);
@@ -90,11 +91,9 @@ describe("My Probot app", () => {
 
     it("add issue to project board when tagged", async (done) => {
       // Mock that the board is not yet on the project board
-      nockGH
-        .post("/graphql")
-        .reply(200, {
-          data: { repository: { issue: { projectCards: { nodes: [] } } } },
-        });
+      nockGH.post("/graphql").reply(200, {
+        data: { repository: { issue: { projectCards: { nodes: [] } } } },
+      });
       // Test that card created in assigned column
       nockGH
         .post(`/projects/columns/${COL_ID_ASSIGNED}/cards`, (body: any) => {
@@ -119,15 +118,13 @@ describe("My Probot app", () => {
 
     it("moves issue to diff column if already on project board", async (done) => {
       // Mock that the board is not yet on the project board
-      nockGH
-        .post("/graphql")
-        .reply(200, {
-          data: {
-            repository: {
-              issue: { projectCards: { nodes: [{ databaseId: 424242 }] } },
-            },
+      nockGH.post("/graphql").reply(200, {
+        data: {
+          repository: {
+            issue: { projectCards: { nodes: [{ databaseId: 424242 }] } },
           },
-        });
+        },
+      });
       nockGH
         .post("/projects/columns/cards/424242/moves", (body: any) => {
           done(
@@ -149,11 +146,9 @@ describe("My Probot app", () => {
     });
 
     it("removes old status tags", async () => {
-      nockGH
-        .post("/graphql")
-        .reply(200, {
-          data: { repository: { issue: { projectCards: { nodes: [] } } } },
-        });
+      nockGH.post("/graphql").reply(200, {
+        data: { repository: { issue: { projectCards: { nodes: [] } } } },
+      });
       nockGH
         .delete(
           `/repos/dajinchu/gh-project-bot/issues/${ISSUE_NUM}/labels/status/triage`
@@ -173,6 +168,46 @@ describe("My Probot app", () => {
       expect(
         probot.receive(mockIssueLabeled("priority/high", ["priority/high"]))
       ).resolves.not.toThrow();
+    });
+  });
+
+  describe("project_card.moved", () => {
+    it("moving a card with no issue inside does nothing", () => {
+      expect(
+        probot.receive({
+          name: "project_card",
+          payload: {
+            action: "moved",
+            project_card: { column_id: COL_ID_TRIAGE },
+            repository: REPO,
+          },
+        })
+      ).resolves.not.toThrow();
+    });
+    it("moving a card with an issue changes the label", async (done) => {
+      nockGH
+        .get(`/projects/columns/${COL_ID_ASSIGNED}`)
+        .reply(200, { name: "Assigned" });
+
+      nockGH
+        .post(`/repos/dajinchu/gh-project-bot/issues/2/labels`, (body: any) => {
+          done(expect(body).toMatchObject(["status/assigned"]));
+          return true;
+        })
+        .reply(201);
+
+      await probot.receive({
+        name: "project_card",
+        payload: {
+          action: "moved",
+          project_card: {
+            column_id: COL_ID_ASSIGNED,
+            content_url:
+              "https://api.github.com/repos/dajinchu/gh-project-bot/issues/2",
+          },
+          repository: REPO,
+        },
+      });
     });
   });
 

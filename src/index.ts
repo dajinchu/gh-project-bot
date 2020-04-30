@@ -1,6 +1,8 @@
 import { Application } from "probot"; // eslint-disable-line no-unused-vars
+import { issueNumFromURL } from "./util";
+import { findKey } from "lodash";
 
-const ISSUE_TO_COLUMN: Record<string, string> = {
+const LABEL_TO_COLUMN: Record<string, string> = {
   "status/triage": "Triage",
   "status/ready-to-work-on": "Ready to Work On",
   "status/assigned": "Assigned",
@@ -38,15 +40,15 @@ export = (app: Application) => {
 
     // Get new status label
     const newStatus: string = (payload as any).label.name; //Probot types are a bit scuffed
-    if (!(newStatus in ISSUE_TO_COLUMN)) {
+    if (!(newStatus in LABEL_TO_COLUMN)) {
       return;
     }
-    const columnName = ISSUE_TO_COLUMN[newStatus];
+    const columnName = LABEL_TO_COLUMN[newStatus];
 
     // Get rid of other label(s) that start with status/
     const otherLabels: string[] = payload.issue.labels
       .map((l) => l.name)
-      .filter((n) => n in ISSUE_TO_COLUMN && n !== newStatus);
+      .filter((n) => n in LABEL_TO_COLUMN && n !== newStatus);
     await Promise.all(
       otherLabels.map((l) =>
         github.issues.removeLabel({
@@ -95,6 +97,26 @@ export = (app: Application) => {
         content_type: "Issue",
       });
     }
+  });
+  app.on("project_card.moved", async ({ payload, github }) => {
+    const newColumn = payload.project_card.column_id;
+    const columnName = (
+      await github.projects.getColumn({ column_id: newColumn })
+    ).data.name;
+    const labelName = findKey(LABEL_TO_COLUMN, (c) => c === columnName);
+    if (labelName === undefined) {
+      console.error("no corresponding label for this column");
+      return;
+    }
+    const issueNum: number = issueNumFromURL(
+      (payload.project_card as any).content_url
+    );
+    await github.issues.addLabels({
+      owner: payload.repository.owner.login,
+      repo: payload.repository.name,
+      issue_number: issueNum,
+      labels: [labelName],
+    });
   });
   // For more information on building apps:
   // https://probot.github.io/docs/
