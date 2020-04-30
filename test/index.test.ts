@@ -9,7 +9,7 @@ import fs from "fs";
 import path from "path";
 import { TRIAGE_LABEL } from "../src/settings";
 
-const nockGH = nock("https://api.github.com");
+const nockGH = () => nock("https://api.github.com");
 
 const REPO = {
   name: "gh-project-bot",
@@ -69,20 +69,18 @@ describe("My Probot app", () => {
       };
     }
     beforeEach(() => {
-      nockGH
+      nockGH()
         .post("/app/installations/2/access_tokens")
         .reply(200, { token: "test" });
 
       // mock get project id
-      nockGH
+      nockGH()
         .get("/repos/dajinchu/gh-project-bot/projects")
-        .optionally()
         .reply(200, [{ id: PROJ_ID }]);
 
       // mock get columns
-      nockGH
+      nockGH()
         .get(`/projects/${PROJ_ID}/columns`)
-        .optionally()
         .reply(200, [
           { id: COL_ID_TRIAGE, name: "Triage" },
           { id: COL_ID_ASSIGNED, name: "Assigned" },
@@ -92,11 +90,15 @@ describe("My Probot app", () => {
 
     it("add issue to project board when tagged", async (done) => {
       // Mock that the board is not yet on the project board
-      nockGH.post("/graphql").reply(200, {
-        data: { repository: { issue: { projectCards: { nodes: [] } } } },
-      });
+      nockGH()
+        .post("/graphql")
+        .reply(200, {
+          data: {
+            repository: { issueOrPullRequest: { projectCards: { nodes: [] } } },
+          },
+        });
       // Test that card created in assigned column
-      nockGH
+      nockGH()
         .post(`/projects/columns/${COL_ID_ASSIGNED}/cards`, (body: any) => {
           done(
             expect(body).toMatchObject({
@@ -118,21 +120,30 @@ describe("My Probot app", () => {
     });
 
     it("moves issue to diff column if already on project board", async (done) => {
-      // Mock that the board is not yet on the project board
-      nockGH.post("/graphql").reply(200, {
-        data: {
-          repository: {
-            issue: { projectCards: { nodes: [{ databaseId: 424242 }] } },
+      nockGH()
+        .post("/graphql")
+        .reply(200, {
+          data: {
+            repository: {
+              issueOrPullRequest: {
+                projectCards: {
+                  nodes: [
+                    {
+                      column: { databaseId: COL_ID_TRIAGE },
+                      databaseId: 424242,
+                    },
+                  ],
+                },
+              },
+            },
           },
-        },
-      });
-      nockGH
+        });
+      nockGH()
         .post("/projects/columns/cards/424242/moves", (body: any) => {
-          done(
-            expect(body).toMatchObject({
-              column_id: COL_ID_ASSIGNED,
-            })
-          );
+          expect(body).toMatchObject({
+            column_id: COL_ID_ASSIGNED,
+          });
+          done();
           return true;
         })
         .reply(201);
@@ -146,16 +157,53 @@ describe("My Probot app", () => {
       );
     });
 
+    it("does not move issue if they are already in right column", async () => {
+      nockGH()
+        .post("/graphql")
+        .reply(200, {
+          data: {
+            repository: {
+              issueOrPullRequest: {
+                projectCards: {
+                  nodes: [
+                    {
+                      column: { databaseId: COL_ID_ASSIGNED },
+                      databaseId: 424242,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        });
+      const onMove = jest.fn().mockReturnValue(true);
+      nockGH().post("/projects/columns/cards/424242/moves", onMove).reply(201);
+
+      // Receive a webhook event
+      await probot.receive(
+        mockIssueLabeled("status/assigned", [
+          "status/assigned",
+          "priority/high",
+        ])
+      );
+      expect(onMove).not.toHaveBeenCalled();
+      // throw new Error('it tried to move')
+    });
+
     it("removes old status tags", async () => {
-      nockGH.post("/graphql").reply(200, {
-        data: { repository: { issue: { projectCards: { nodes: [] } } } },
-      });
-      nockGH
+      nockGH()
+        .post("/graphql")
+        .reply(200, {
+          data: {
+            repository: { issueOrPullRequest: { projectCards: { nodes: [] } } },
+          },
+        });
+      nockGH()
         .delete(
           `/repos/dajinchu/gh-project-bot/issues/${ISSUE_NUM}/labels/status/triage`
         )
         .reply(200);
-      nockGH.post(`/projects/columns/${COL_ID_ASSIGNED}/cards`).reply(201);
+      nockGH().post(`/projects/columns/${COL_ID_ASSIGNED}/cards`).reply(201);
 
       // Receive a webhook event
       await probot.receive(
@@ -166,15 +214,15 @@ describe("My Probot app", () => {
       );
     });
     it("gracefully handles not finding any status tags", async () => {
-      expect(
+      await expect(
         probot.receive(mockIssueLabeled("priority/high", ["priority/high"]))
-      ).resolves.not.toThrow();
+      ).resolves.toBeDefined();
     });
   });
 
   describe("issues.opened", () => {
     it("adds the triage label when new issues are created", async (done) => {
-      nockGH
+      nockGH()
         .post(
           `/repos/dajinchu/gh-project-bot/issues/33/labels`,
           (body: any) => {
@@ -197,8 +245,8 @@ describe("My Probot app", () => {
   });
 
   describe("project_card.moved", () => {
-    it("moving a card with no issue inside does nothing", () => {
-      expect(
+    it("moving a card with no issue inside does nothing", async () => {
+      await expect(
         probot.receive({
           name: "project_card",
           payload: {
@@ -207,14 +255,14 @@ describe("My Probot app", () => {
             repository: REPO,
           },
         })
-      ).resolves.not.toThrow();
+      ).resolves.toBeDefined();
     });
     it("moving a card with an issue changes the label", async (done) => {
-      nockGH
+      nockGH()
         .get(`/projects/columns/${COL_ID_ASSIGNED}`)
         .reply(200, { name: "Assigned" });
 
-      nockGH
+      nockGH()
         .post(`/repos/dajinchu/gh-project-bot/issues/2/labels`, (body: any) => {
           done(expect(body).toMatchObject(["status/assigned"]));
           return true;

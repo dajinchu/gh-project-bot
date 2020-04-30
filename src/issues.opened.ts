@@ -1,12 +1,12 @@
 import { Context } from "probot";
-import Webhooks from "@octokit/webhooks";
 import { TRIAGE_LABEL } from "./settings";
+import { WebhookPayloadIssues } from "@octokit/webhooks";
 
 // Add Triage label when an issue is opened
 export async function issuesOpened({
   payload,
   github,
-}: Context<Webhooks.WebhookPayloadIssues>) {
+}: Context<WebhookPayloadIssues>) {
   await github.issues.addLabels({
     owner: payload.repository.owner.login,
     repo: payload.repository.name,

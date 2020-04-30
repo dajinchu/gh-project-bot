@@ -1,11 +1,19 @@
 import { Context } from "probot";
-import Webhooks from "@octokit/webhooks";
-import { TRIAGE_LABEL } from "./settings";
+import { WebhookPayloadPullRequest } from "@octokit/webhooks";
 
 // Move pull request around based on draft status
-export async function pullrequestOpened({
+export async function pull_requestOpened({
   payload,
   github,
-}: Context<Webhooks.WebhookPayloadIssues>) {
+}: Context<WebhookPayloadPullRequest>) {
+  github;
+  payload;
   console.log("PR OPENED");
+  // github.pulls.
+  // await github.issues.addLabels({
+  //   owner: payload.repository.owner.login,
+  //   repo: payload.repository.name,
+  //   issue_number: payload.issue.number,
+  //   labels: [TRIAGE_LABEL],
+  // });
 }
