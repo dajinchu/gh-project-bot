@@ -7,6 +7,7 @@ import myProbotApp from "../src";
 import { Probot } from "probot";
 import fs from "fs";
 import path from "path";
+import { TRIAGE_LABEL } from "../src/settings";
 
 const nockGH = nock("https://api.github.com");
 
@@ -168,6 +169,30 @@ describe("My Probot app", () => {
       expect(
         probot.receive(mockIssueLabeled("priority/high", ["priority/high"]))
       ).resolves.not.toThrow();
+    });
+  });
+
+  describe("issues.opened", () => {
+    it("adds the triage label when new issues are created", async (done) => {
+      nockGH
+        .post(
+          `/repos/dajinchu/gh-project-bot/issues/33/labels`,
+          (body: any) => {
+            console.log("hello");
+            expect(body).toMatchObject([TRIAGE_LABEL]);
+            done();
+            return true;
+          }
+        )
+        .reply(201);
+      probot.receive({
+        name: "issues",
+        payload: {
+          action: "opened",
+          issue: { number: 33 },
+          repository: REPO,
+        },
+      });
     });
   });
 

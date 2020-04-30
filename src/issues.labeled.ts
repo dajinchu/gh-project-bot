@@ -16,6 +16,8 @@ const findCard = `
     }
   }
 `;
+
+// Sync labels => project board
 export async function issuesLabeled({
   payload,
   github,

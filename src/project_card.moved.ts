@@ -3,6 +3,7 @@ import { WebhookPayloadProjectCard } from "@octokit/webhooks";
 import { LABEL_TO_COLUMN } from "./settings";
 import { findKey } from "lodash";
 
+// Sync project board => labels
 export async function project_cardMoved({
   payload,
   github,
