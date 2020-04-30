@@ -7,7 +7,11 @@ import myProbotApp from "../src";
 import { Probot } from "probot";
 import fs from "fs";
 import path from "path";
-import { TRIAGE_LABEL } from "../src/settings";
+import {
+  TRIAGE_LABEL,
+  IN_PROGRESS_LABEL,
+  IN_REVIEW_LABEL,
+} from "../src/settings";
 
 const nockGH = () => nock("https://api.github.com");
 
@@ -47,7 +51,7 @@ describe("My Probot app", () => {
     probot.load(myProbotApp);
   });
 
-  describe("issue.labeled", () => {
+  describe("issue.labeled / pull_request.labeled", () => {
     function mockIssueLabeled(newLabel: string, allLabels: string[]) {
       return {
         name: "issues",
@@ -226,7 +230,6 @@ describe("My Probot app", () => {
         .post(
           `/repos/dajinchu/gh-project-bot/issues/33/labels`,
           (body: any) => {
-            console.log("hello");
             expect(body).toMatchObject([TRIAGE_LABEL]);
             done();
             return true;
@@ -278,6 +281,69 @@ describe("My Probot app", () => {
             content_url:
               "https://api.github.com/repos/dajinchu/gh-project-bot/issues/2",
           },
+          repository: REPO,
+        },
+      });
+    });
+  });
+
+  describe("pull_request.opened + ready_for_review", () => {
+    it("adds the in progress label when PR is marked ready for review", async (done) => {
+      nockGH()
+        .post(
+          `/repos/dajinchu/gh-project-bot/issues/33/labels`,
+          (body: any) => {
+            expect(body).toMatchObject([IN_REVIEW_LABEL]);
+            done();
+            return true;
+          }
+        )
+        .reply(201);
+      probot.receive({
+        name: "pull_request",
+        payload: {
+          action: "ready_for_review",
+          pull_request: { draft: false, number: 33 },
+          repository: REPO,
+        },
+      });
+    });
+    it("adds the in progress label when PR ready for review is opened", async (done) => {
+      nockGH()
+        .post(
+          `/repos/dajinchu/gh-project-bot/issues/33/labels`,
+          (body: any) => {
+            expect(body).toMatchObject([IN_REVIEW_LABEL]);
+            done();
+            return true;
+          }
+        )
+        .reply(201);
+      probot.receive({
+        name: "pull_request",
+        payload: {
+          action: "opened",
+          pull_request: { draft: false, number: 33 },
+          repository: REPO,
+        },
+      });
+    });
+    it("adds the in progress label when draft PR is opened", async (done) => {
+      nockGH()
+        .post(
+          `/repos/dajinchu/gh-project-bot/issues/33/labels`,
+          (body: any) => {
+            expect(body).toMatchObject([IN_PROGRESS_LABEL]);
+            done();
+            return true;
+          }
+        )
+        .reply(201);
+      probot.receive({
+        name: "pull_request",
+        payload: {
+          action: "opened",
+          pull_request: { draft: true, number: 33 },
           repository: REPO,
         },
       });
