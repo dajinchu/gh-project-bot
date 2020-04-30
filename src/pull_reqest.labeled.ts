@@ -1,19 +1,20 @@
 import { Context } from "probot";
-import { WebhookPayloadIssues } from "@octokit/webhooks";
 import { syncLabelToBoard } from "./syncLabelToBoard";
+import { WebhookPayloadPullRequest } from "@octokit/webhooks";
 
+// graphql
 // Sync labels => project board
-export async function issuesLabeled({
+export async function pull_requestLabeled({
   payload,
   github,
-}: Context<WebhookPayloadIssues>) {
+}: Context<WebhookPayloadPullRequest>) {
   if (payload.label === undefined) {
     return;
   }
   await syncLabelToBoard({
-    prOrIssue: payload.issue,
+    prOrIssue: payload.pull_request,
     repo: payload.repository,
-    isPR: false,
+    isPR: true,
     newLabel: payload.label.name,
     github,
   });
